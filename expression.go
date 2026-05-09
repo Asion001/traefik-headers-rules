@@ -39,12 +39,12 @@ func (n *notNode) Eval(req *http.Request, status int, headers http.Header) bool 
 }
 
 type methodNode struct {
-	methods []string
+	regexps []*regexp.Regexp
 }
 
 func (n *methodNode) Eval(req *http.Request, status int, headers http.Header) bool {
-	for _, m := range n.methods {
-		if req.Method == m {
+	for _, r := range n.regexps {
+		if r.MatchString(req.Method) {
 			return true
 		}
 	}
@@ -65,19 +65,19 @@ func (n *pathNode) Eval(req *http.Request, status int, headers http.Header) bool
 }
 
 type headerNode struct {
-	name    string
-	regexps []*regexp.Regexp
+	nameRegex  *regexp.Regexp
+	valRegexps []*regexp.Regexp
 }
 
 func (n *headerNode) Eval(req *http.Request, status int, headers http.Header) bool {
-	values := headers.Values(n.name)
-	if len(values) == 0 {
-		return false
-	}
-	for _, v := range values {
-		for _, r := range n.regexps {
-			if r.MatchString(v) {
-				return true
+	for k, values := range headers {
+		if n.nameRegex.MatchString(k) {
+			for _, v := range values {
+				for _, r := range n.valRegexps {
+					if r.MatchString(v) {
+						return true
+					}
+				}
 			}
 		}
 	}
@@ -85,15 +85,16 @@ func (n *headerNode) Eval(req *http.Request, status int, headers http.Header) bo
 }
 
 type statusNode struct {
-	statuses []int
+	regexps []*regexp.Regexp
 }
 
 func (n *statusNode) Eval(req *http.Request, status int, headers http.Header) bool {
 	if status == 0 {
 		return false
 	}
-	for _, s := range n.statuses {
-		if status == s {
+	statusStr := strconv.Itoa(status)
+	for _, r := range n.regexps {
+		if r.MatchString(statusStr) {
 			return true
 		}
 	}
@@ -307,7 +308,15 @@ func (p *parser) parseFuncCall() (Node, error) {
 
 	switch strings.ToLower(funcName) {
 	case "method":
-		return &methodNode{methods: args}, nil
+		var regexps []*regexp.Regexp
+		for _, arg := range args {
+			re, err := regexp.Compile(arg)
+			if err != nil {
+				return nil, fmt.Errorf("invalid method regex %q: %v", arg, err)
+			}
+			regexps = append(regexps, re)
+		}
+		return &methodNode{regexps: regexps}, nil
 	case "path":
 		var regexps []*regexp.Regexp
 		for _, arg := range args {
@@ -320,27 +329,31 @@ func (p *parser) parseFuncCall() (Node, error) {
 		return &pathNode{regexps: regexps}, nil
 	case "header":
 		if len(args) < 2 {
-			return nil, fmt.Errorf("Header() requires at least 2 arguments: name and match regex")
+			return nil, fmt.Errorf("Header() requires at least 2 arguments: name regex and match regex")
 		}
-		var regexps []*regexp.Regexp
+		nameRe, err := regexp.Compile(args[0])
+		if err != nil {
+			return nil, fmt.Errorf("invalid header name regex %q: %v", args[0], err)
+		}
+		var valRegexps []*regexp.Regexp
 		for _, arg := range args[1:] {
 			re, err := regexp.Compile(arg)
 			if err != nil {
-				return nil, fmt.Errorf("invalid header regex %q: %v", arg, err)
+				return nil, fmt.Errorf("invalid header value regex %q: %v", arg, err)
+			}
+			valRegexps = append(valRegexps, re)
+		}
+		return &headerNode{nameRegex: nameRe, valRegexps: valRegexps}, nil
+	case "status":
+		var regexps []*regexp.Regexp
+		for _, arg := range args {
+			re, err := regexp.Compile(arg)
+			if err != nil {
+				return nil, fmt.Errorf("invalid status regex %q: %v", arg, err)
 			}
 			regexps = append(regexps, re)
 		}
-		return &headerNode{name: args[0], regexps: regexps}, nil
-	case "status":
-		var statuses []int
-		for _, arg := range args {
-			s, err := strconv.Atoi(arg)
-			if err != nil {
-				return nil, fmt.Errorf("invalid status code %q: %v", arg, err)
-			}
-			statuses = append(statuses, s)
-		}
-		return &statusNode{statuses: statuses}, nil
+		return &statusNode{regexps: regexps}, nil
 	default:
 		return nil, fmt.Errorf("unknown function: %s", funcName)
 	}

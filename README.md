@@ -10,10 +10,10 @@ You can configure as many `requestRules` and `responseRules` as you need. Each r
 
 The plugin uses a custom expression engine that supports logical operators (`&&`, `||`, `!`) and specific functions to inspect requests and responses:
 
-- `Header("Header-Name", "RegexPattern")`: Checks if a specific header matches the given regex.
-- `Method("HTTP_METHOD")`: Checks the HTTP request method (e.g., `"GET"`, `"POST"`).
+- `Header("HeaderNameRegex", "RegexPattern")`: Checks if any header matching the name regex has a value that matches the pattern regex. (e.g., `Header("^X-.*", "^foo$")`)
+- `Method("REGEX_METHOD")`: Checks if the HTTP request method matches the regex (e.g., `"^GET|POST$"`).
 - `Path("RegexPattern")`: Checks if the request path matches the given regex.
-- `Status("StatusCode")`: Checks if the response status matches exactly (only applicable in `responseRules`).
+- `Status("RegexStatusCode")`: Checks if the response status matches the regex (e.g., `"^2..$"` or `"404"`). Only applicable in `responseRules`.
 
 ### Example
 

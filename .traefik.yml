@@ -1,0 +1,15 @@
+displayName: Headers Rules
+type: middleware
+import: github.com/Asion001/traefik-headers-rules
+summary: Rules to conditionally set headers based on regex matching of other headers
+testData:
+  requestRules:
+    - checkHeader: "User-Agent"
+      checkRegex: "curl(.*)"
+      setHeader: "X-Curl-Client"
+      setValue: "true"
+  responseRules:
+    - checkHeader: "Content-Type"
+      checkRegex: "^image/(.+)$"
+      setHeader: "Cache-Control"
+      setValue: "public, max-age=31536000"

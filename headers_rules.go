@@ -6,18 +6,13 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"regexp"
 )
 
 // Rule holds configuration for a conditional header application.
 type Rule struct {
-	CheckHeader string `json:"checkHeader,omitempty"`
-	CheckRegex  string `json:"checkRegex,omitempty"`
-	CheckMethod string `json:"checkMethod,omitempty"`
-	CheckPath   string `json:"checkPath,omitempty"`
-	CheckStatus int    `json:"checkStatus,omitempty"`
-	SetHeader   string `json:"setHeader,omitempty"`
-	SetValue    string `json:"setValue,omitempty"`
+	Expression string `json:"expression,omitempty"`
+	SetHeader  string `json:"setHeader,omitempty"`
+	SetValue   string `json:"setValue,omitempty"`
 }
 
 // Config holds the plugin configuration.
@@ -35,13 +30,9 @@ func CreateConfig() *Config {
 }
 
 type rule struct {
-	checkHeader string
-	checkRegex  *regexp.Regexp
-	checkMethod string
-	checkPath   *regexp.Regexp
-	checkStatus int
-	setHeader   string
-	setValue    string
+	node      Node
+	setHeader string
+	setValue  string
 }
 
 type headersRules struct {
@@ -73,72 +64,24 @@ func New(ctx context.Context, next http.Handler, config *Config, name string) (h
 func compileRules(cfgRules []Rule) ([]rule, error) {
 	var compiled []rule
 	for _, r := range cfgRules {
-		var headerRegex *regexp.Regexp
-		var pathRegex *regexp.Regexp
-		var err error
-
-		if r.CheckRegex != "" {
-			headerRegex, err = regexp.Compile(r.CheckRegex)
-			if err != nil {
-				return nil, fmt.Errorf("error compiling checkRegex %q: %w", r.CheckRegex, err)
-			}
-		}
-
-		if r.CheckPath != "" {
-			pathRegex, err = regexp.Compile(r.CheckPath)
-			if err != nil {
-				return nil, fmt.Errorf("error compiling checkPath %q: %w", r.CheckPath, err)
-			}
+		node, err := parseExpression(r.Expression)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing expression %q: %w", r.Expression, err)
 		}
 
 		compiled = append(compiled, rule{
-			checkHeader: r.CheckHeader,
-			checkRegex:  headerRegex,
-			checkMethod: r.CheckMethod,
-			checkPath:   pathRegex,
-			checkStatus: r.CheckStatus,
-			setHeader:   r.SetHeader,
-			setValue:    r.SetValue,
+			node:      node,
+			setHeader: r.SetHeader,
+			setValue:  r.SetValue,
 		})
 	}
 	return compiled, nil
 }
 
-func matchRule(r rule, req *http.Request, status int, headers http.Header) bool {
-	if r.checkStatus > 0 && status != r.checkStatus {
-		return false
-	}
-	if r.checkMethod != "" && req.Method != r.checkMethod {
-		return false
-	}
-	if r.checkPath != nil && !r.checkPath.MatchString(req.URL.Path) {
-		return false
-	}
-	if r.checkHeader != "" {
-		values := headers.Values(r.checkHeader)
-		if len(values) == 0 {
-			return false
-		}
-		if r.checkRegex != nil {
-			matched := false
-			for _, v := range values {
-				if r.checkRegex.MatchString(v) {
-					matched = true
-					break
-				}
-			}
-			if !matched {
-				return false
-			}
-		}
-	}
-	return true
-}
-
 func (h *headersRules) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	// Apply Request Rules (status is 0 since it's not applicable)
 	for _, r := range h.requestRules {
-		if matchRule(r, req, 0, req.Header) {
+		if r.node.Eval(req, 0, req.Header) {
 			req.Header.Set(r.setHeader, r.setValue)
 		}
 	}
@@ -176,7 +119,7 @@ func (r *responseWriter) Write(bytes []byte) (int, error) {
 func (r *responseWriter) WriteHeader(statusCode int) {
 	if !r.wroteHeader {
 		for _, rule := range r.rules {
-			if matchRule(rule, r.req, statusCode, r.writer.Header()) {
+			if rule.node.Eval(r.req, statusCode, r.writer.Header()) {
 				r.writer.Header().Set(rule.setHeader, rule.setValue)
 			}
 		}

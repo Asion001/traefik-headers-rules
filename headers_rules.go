@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 )
 
 // Rule holds configuration for a conditional header application.
@@ -42,7 +43,7 @@ type headersRules struct {
 	next          http.Handler
 	requestRules  []rule
 	responseRules []rule
-	debug         bool
+	logLevel      string
 }
 
 // New creates and returns a new middleware plugin instance.
@@ -56,17 +57,12 @@ func New(ctx context.Context, next http.Handler, config *Config, name string) (h
 		return nil, fmt.Errorf("error compiling response rules: %w", err)
 	}
 
-	debug := false
-	if config.LogLevel == "DEBUG" {
-		debug = true
-	}
-
 	return &headersRules{
 		name:          name,
 		next:          next,
 		requestRules:  reqRules,
 		responseRules: resRules,
-		debug:         debug,
+		logLevel:      config.LogLevel,
 	}, nil
 }
 
@@ -90,9 +86,13 @@ func compileRules(cfgRules []Rule) ([]rule, error) {
 func (h *headersRules) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	// Apply Request Rules (status is 0 since it's not applicable)
 	for i, r := range h.requestRules {
-		if r.node.Eval(req, 0, req.Header) {
-			if h.debug {
-				fmt.Printf("[headers-rules] (Request) plugin=%s rule=%d matched! Setting %s: %s\n", h.name, i, r.setHeader, r.setValue)
+		matched := r.node.Eval(req, 0, req.Header)
+		if h.logLevel == "VERBOSE" {
+			os.Stdout.WriteString(fmt.Sprintf("[headers-rules] (Request) plugin=%s rule=%d matched=%v\n", h.name, i, matched))
+		}
+		if matched {
+			if h.logLevel == "DEBUG" || h.logLevel == "VERBOSE" {
+				os.Stdout.WriteString(fmt.Sprintf("[headers-rules] (Request) plugin=%s Setting %s: %s\n", h.name, r.setHeader, r.setValue))
 			}
 			req.Header.Set(r.setHeader, r.setValue)
 		}
@@ -100,11 +100,11 @@ func (h *headersRules) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 
 	if len(h.responseRules) > 0 {
 		wrappedWriter := &responseWriter{
-			writer: rw,
-			req:    req,
-			rules:  h.responseRules,
-			debug:  h.debug,
-			plugin: h.name,
+			writer:   rw,
+			req:      req,
+			rules:    h.responseRules,
+			logLevel: h.logLevel,
+			plugin:   h.name,
 		}
 		h.next.ServeHTTP(wrappedWriter, req)
 	} else {
@@ -117,7 +117,7 @@ type responseWriter struct {
 	req         *http.Request
 	rules       []rule
 	wroteHeader bool
-	debug       bool
+	logLevel    string
 	plugin      string
 }
 
@@ -135,9 +135,13 @@ func (r *responseWriter) Write(bytes []byte) (int, error) {
 func (r *responseWriter) WriteHeader(statusCode int) {
 	if !r.wroteHeader {
 		for i, rule := range r.rules {
-			if rule.node.Eval(r.req, statusCode, r.writer.Header()) {
-				if r.debug {
-					fmt.Printf("[headers-rules] (Response) plugin=%s rule=%d matched! Setting %s: %s\n", r.plugin, i, rule.setHeader, rule.setValue)
+			matched := rule.node.Eval(r.req, statusCode, r.writer.Header())
+			if r.logLevel == "VERBOSE" {
+				os.Stdout.WriteString(fmt.Sprintf("[headers-rules] (Response) plugin=%s rule=%d matched=%v\n", r.plugin, i, matched))
+			}
+			if matched {
+				if r.logLevel == "DEBUG" || r.logLevel == "VERBOSE" {
+					os.Stdout.WriteString(fmt.Sprintf("[headers-rules] (Response) plugin=%s Setting %s: %s\n", r.plugin, rule.setHeader, rule.setValue))
 				}
 				r.writer.Header().Set(rule.setHeader, rule.setValue)
 			}

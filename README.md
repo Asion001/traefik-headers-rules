@@ -12,7 +12,7 @@ experimental:
   plugins:
     headers-rules:
       moduleName: "github.com/Asion001/traefik-headers-rules"
-      version: "v0.1.0" # replace with the desired version
+      version: "v1.0.0" # replace with the desired version
 ```
 
 ## Configuration

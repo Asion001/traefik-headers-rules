@@ -61,6 +61,7 @@ http:
 | `expression` | `string` | The boolean logic expression dictating when the header should be set. |
 | `setHeader`  | `string` | The header name to set if the conditions in the expression are met.   |
 | `setValue`   | `string` | The value to apply to the `setHeader`.                                |
+| `logLevel`   | `string` | Add `logLevel: "DEBUG"` to config output print rules when matched.    |
 
 ## Development
 

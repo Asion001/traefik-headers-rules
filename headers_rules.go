@@ -19,6 +19,7 @@ type Rule struct {
 type Config struct {
 	RequestRules  []Rule `json:"requestRules,omitempty"`
 	ResponseRules []Rule `json:"responseRules,omitempty"`
+	LogLevel      string `json:"logLevel,omitempty"`
 }
 
 // CreateConfig creates and initializes the plugin configuration.
@@ -26,6 +27,7 @@ func CreateConfig() *Config {
 	return &Config{
 		RequestRules:  make([]Rule, 0),
 		ResponseRules: make([]Rule, 0),
+		LogLevel:      "INFO",
 	}
 }
 
@@ -40,6 +42,7 @@ type headersRules struct {
 	next          http.Handler
 	requestRules  []rule
 	responseRules []rule
+	debug         bool
 }
 
 // New creates and returns a new middleware plugin instance.
@@ -53,11 +56,17 @@ func New(ctx context.Context, next http.Handler, config *Config, name string) (h
 		return nil, fmt.Errorf("error compiling response rules: %w", err)
 	}
 
+	debug := false
+	if config.LogLevel == "DEBUG" {
+		debug = true
+	}
+
 	return &headersRules{
 		name:          name,
 		next:          next,
 		requestRules:  reqRules,
 		responseRules: resRules,
+		debug:         debug,
 	}, nil
 }
 
@@ -80,8 +89,11 @@ func compileRules(cfgRules []Rule) ([]rule, error) {
 
 func (h *headersRules) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	// Apply Request Rules (status is 0 since it's not applicable)
-	for _, r := range h.requestRules {
+	for i, r := range h.requestRules {
 		if r.node.Eval(req, 0, req.Header) {
+			if h.debug {
+				fmt.Printf("[headers-rules] (Request) plugin=%s rule=%d matched! Setting %s: %s\n", h.name, i, r.setHeader, r.setValue)
+			}
 			req.Header.Set(r.setHeader, r.setValue)
 		}
 	}
@@ -91,6 +103,8 @@ func (h *headersRules) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 			writer: rw,
 			req:    req,
 			rules:  h.responseRules,
+			debug:  h.debug,
+			plugin: h.name,
 		}
 		h.next.ServeHTTP(wrappedWriter, req)
 	} else {
@@ -103,6 +117,8 @@ type responseWriter struct {
 	req         *http.Request
 	rules       []rule
 	wroteHeader bool
+	debug       bool
+	plugin      string
 }
 
 func (r *responseWriter) Header() http.Header {
@@ -118,8 +134,11 @@ func (r *responseWriter) Write(bytes []byte) (int, error) {
 
 func (r *responseWriter) WriteHeader(statusCode int) {
 	if !r.wroteHeader {
-		for _, rule := range r.rules {
+		for i, rule := range r.rules {
 			if rule.node.Eval(r.req, statusCode, r.writer.Header()) {
+				if r.debug {
+					fmt.Printf("[headers-rules] (Response) plugin=%s rule=%d matched! Setting %s: %s\n", r.plugin, i, rule.setHeader, rule.setValue)
+				}
 				r.writer.Header().Set(rule.setHeader, rule.setValue)
 			}
 		}

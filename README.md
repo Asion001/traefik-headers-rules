@@ -2,6 +2,19 @@
 
 This plugin for [Traefik](https://github.com/traefik/traefik) intercepts HTTP traffic and allows you to dynamically set headers on your **Requests** (before they reach the backend) or **Responses** (before they reach the client) using a powerful boolean expression engine.
 
+## Installation
+
+Add the plugin to your Traefik static configuration:
+
+```yaml
+# traefik.yml
+experimental:
+  plugins:
+    headers-rules:
+      moduleName: "github.com/Asion001/traefik-headers-rules"
+      version: "v0.1.0" # replace with the desired version
+```
+
 ## Configuration
 
 You can configure as many `requestRules` and `responseRules` as you need. Each rule evaluates an `expression`. If the expression evaluates to `true`, the `setHeader` and `setValue` actions are executed.
